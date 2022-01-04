@@ -11,8 +11,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func run(ctx context.Context) {
+func main() {
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	g, gCtx := errgroup.WithContext(ctx)
+
 	g.Go(func() error {
 		for {
 			select {
@@ -42,12 +47,5 @@ func run(ctx context.Context) {
 		fmt.Println("Error group: ", err)
 	}
 	fmt.Println("Main done")
-}
-
-func main() {
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	run(ctx)
 
 }

@@ -5,26 +5,126 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
-const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
-	colorPurple = "\033[35m"
-	colorCyan   = "\033[36m"
-	colorWhite  = "\033[37m"
-)
+var MyCounter MyTestCounter = MyTestCounter{}
+
+type MyTestCounter struct {
+	i      int
+	ctx    context.Context
+	cancel func()
+}
+
+func (a *MyTestCounter) Start() {
+
+	a.setup()
+
+	if err := a.work(); err != nil {
+		fmt.Printf("%#v\n", err)
+	}
+
+}
+
+func (a *MyTestCounter) setup() {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	a.ctx = ctx
+	a.cancel = cancel
+
+	a.i = 0
+}
+
+func (a *MyTestCounter) work() error {
+
+	fmt.Println("Start - work")
+
+	for {
+		select {
+		default:
+			time.Sleep(250 * time.Millisecond)
+			a.i++
+			fmt.Println(a.i)
+		case <-a.ctx.Done():
+			fmt.Printf("closing work()\n")
+			return a.ctx.Err()
+		}
+	}
+
+}
+
+func (a *MyTestCounter) tidyUp() {
+	fmt.Println("Start - tidyUp")
+
+	fmt.Println("End - tidyUp")
+}
+
+func (a *MyTestCounter) Stop() {
+	a.cancel()
+	a.tidyUp()
+}
+
+func process(command <-chan string, ctx context.Context, wg *sync.WaitGroup) {
+
+	fmt.Println("Start - process section")
+
+	defer wg.Done()
+
+	go func() {
+		for {
+			cmd := <-command
+			fmt.Println(cmd)
+			switch cmd {
+			case "suspend":
+				MyCounter.Stop()
+			case "resume":
+				go MyCounter.Start()
+			default:
+				fmt.Println("Default ?")
+			}
+		}
+	}()
+
+	<-ctx.Done()
+
+	// Something to do
+
+	fmt.Println("End - process section")
+}
+
+func control(command chan string, ctx context.Context, wg *sync.WaitGroup) {
+
+	fmt.Println("Start - control section")
+	defer wg.Done()
+
+	// An example of control
+
+	time.Sleep(1 * time.Second)
+	command <- "resume"
+
+	time.Sleep(1 * time.Second)
+	command <- "suspend"
+
+	time.Sleep(3 * time.Second)
+	command <- "resume"
+
+	time.Sleep(1 * time.Second)
+	command <- "suspend"
+
+	<-ctx.Done()
+
+	// Something to do
+
+	fmt.Println("End - control section")
+}
 
 func main() {
 
 	fmt.Println("Start")
+
+	var wg sync.WaitGroup
 
 	// A context for graceful shutdown (It is based on the signal package)
 	//
@@ -35,61 +135,34 @@ func main() {
 	gracefulShutdownContext, stop := signal.NotifyContext(context.TODO(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	go func() {
+		<-gracefulShutdownContext.Done()
+		fmt.Println("Tasks before shutting down")
+
+		// Add additional tasks here
+
+		stop()
+	}()
+
 	// Package errgroup provides synchronization, error propagation, and Context cancelation
 	// for groups of goroutines working on subtasks of a common task.
-	group, groupContext := errgroup.WithContext(gracefulShutdownContext)
+	// group, groupContext := errgroup.WithContext(gracefulShutdownContext)
 
+	command := make(chan string)
 	// Process section
-	processContext, processCancel := context.WithCancel(context.TODO())
-	group.Go(func() error {
-		fmt.Println("Start - process section")
-
-		for {
-
-			select {
-			case <-groupContext.Done():
-				fmt.Printf("[Process section] Cancel the groupContext(%v)\n", groupContext.Err())
-				return groupContext.Err()
-
-			case <-processContext.Done():
-				fmt.Printf("[Process section] Cancel the processContext(%v)\n", processContext.Err())
-				processContext, processCancel = context.WithCancel(context.TODO())
-				time.Sleep(100 * time.Millisecond)
-				// return processContext.Err()
-			}
-		}
-	})
-
-	// Necessary?
-	_, contorlCancel := context.WithCancel(context.TODO())
-	defer contorlCancel()
+	wg.Add(1)
+	go process(command, gracefulShutdownContext, &wg)
 
 	// Control section
-	group.Go(func() error {
-		fmt.Println("Start - control section")
-
-		for {
-			select {
-			case <-groupContext.Done():
-				fmt.Printf("[Control section] Cancel the groupContext(%v)\n", groupContext.Err())
-				return groupContext.Err()
-
-			case <-time.After(10 * time.Second):
-				fmt.Println("[Control section] Suspending the process")
-				processCancel()
-
-				// case <-time.After(6 * time.Second):
-				// 	fmt.Println("(TBD)Resuming the process")
-			}
-			fmt.Println("Looping")
-		}
-	})
+	wg.Add(1)
+	go control(command, gracefulShutdownContext, &wg)
 
 	fmt.Printf("Wait until go routines are finished.\n")
-	err := group.Wait()
-	if err != nil {
-		fmt.Printf("Error group: %v\n", err)
-	}
+	wg.Wait()
+	// err := group.Wait()
+	// if err != nil {
+	// 	fmt.Printf("Error group: %v\n", err)
+	// }
 
 	fmt.Println("Main done")
 }

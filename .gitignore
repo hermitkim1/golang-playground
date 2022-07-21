@@ -1,2 +1,10 @@
+# Ignore RSA keys
 *.pem
 *.pub
+
+# Ignore configuration files
+log_conf.yaml
+config.yaml
+
+# Ignore execution files
+conn-by-min-latency/conn-by-min-latency

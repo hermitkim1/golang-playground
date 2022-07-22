@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,6 +21,7 @@ var CBLogger *logrus.Logger
 var config model.Config
 
 func init() {
+	fmt.Println("Start......... init()")
 	// Set cb-log
 	env := os.Getenv("CBLOG_ROOT")
 	if env != "" {
@@ -82,7 +82,7 @@ func init() {
 
 	CBLogger.Debugf("Load %v", configPath)
 
-	fmt.Println("End......... init() of controller.go")
+	fmt.Println("End......... init()")
 	fmt.Println("")
 }
 
@@ -91,8 +91,48 @@ func main() {
 	endpoints := config.ETCD.Endpoints
 	ctx := context.TODO()
 
+	// Pre-test
+	fmt.Println("############################")
+	fmt.Println("## Pre-test               ##")
+	fmt.Println("############################")
+
+	etcdClient, err := clientv3.New(clientv3.Config{
+		Endpoints:   endpoints,
+		DialTimeout: 5 * time.Second,
+	})
+
+	if err != nil {
+		CBLogger.Fatal(err)
+	}
+
+	defer func() {
+		errClose := etcdClient.Close()
+		if errClose != nil {
+			CBLogger.Fatal("Can't close the etcd client", errClose)
+		}
+	}()
+
+	for i := 1; i <= 3; i++ {
+		t1 := time.Now()
+		resp, _ := etcdClient.Get(ctx, "sample_key_2")
+		fmt.Println("MemberId: ", resp.Header.MemberId)
+		fmt.Println("etcd Get took", time.Since(t1))
+
+		t2 := time.Now()
+		etcdClient.Put(ctx, "sample_key_2", "sample_value_2")
+		fmt.Println("etcd Put took", time.Since(t2))
+		fmt.Println()
+
+		time.Sleep(500 * time.Millisecond)
+	}
+
 	// Performance evaluation
+	fmt.Println("############################")
+	fmt.Println("## Performance evaluation ##")
+	fmt.Println("############################")
+
 	// Target 0
+	fmt.Println(endpoints[0])
 	cli0, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{endpoints[0]},
 		DialTimeout: 5 * time.Second,
@@ -115,7 +155,8 @@ func main() {
 	fmt.Println("etcd Status took", time.Since(stp00))
 
 	stp02 := time.Now()
-	cli0.Get(ctx, "sample_key_0")
+	resp, _ := cli0.Get(ctx, "sample_key_0")
+	fmt.Println("MemberId: ", resp.Header.MemberId)
 	fmt.Println("etcd Get took", time.Since(stp02))
 
 	stp01 := time.Now()
@@ -125,6 +166,7 @@ func main() {
 	fmt.Println()
 
 	// Target 1
+	fmt.Println(endpoints[1])
 	cli1, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{endpoints[1]},
 		DialTimeout: 5 * time.Second,
@@ -147,22 +189,18 @@ func main() {
 	fmt.Println("etcd Status took", time.Since(stp10))
 
 	stp12 := time.Now()
-	_, err = cli1.Get(ctx, "sample_key_1")
-	if err != nil {
-		log.Fatal(err)
-	}
+	resp, _ = cli1.Get(ctx, "sample_key_1")
+	fmt.Println("MemberId: ", resp.Header.MemberId)
 	fmt.Println("etcd Get took", time.Since(stp12))
 
 	stp11 := time.Now()
-	_, err = cli1.Put(ctx, "sample_key_1", "sample_value_1")
-	if err != nil {
-		log.Fatal(err)
-	}
+	cli1.Put(ctx, "sample_key_1", "sample_value_1")
 	fmt.Println("etcd Put took", time.Since(stp11))
 
 	fmt.Println()
 
 	// Target 2
+	fmt.Println(endpoints[2])
 	cli2, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{endpoints[2]},
 		DialTimeout: 5 * time.Second,
@@ -185,7 +223,8 @@ func main() {
 	fmt.Println("etcd Status took", time.Since(stp20))
 
 	stp22 := time.Now()
-	cli2.Get(ctx, "sample_key_2")
+	resp, _ = cli2.Get(ctx, "sample_key_2")
+	fmt.Println("MemberId: ", resp.Header.MemberId)
 	fmt.Println("etcd Get took", time.Since(stp22))
 
 	stp21 := time.Now()
@@ -194,6 +233,9 @@ func main() {
 	fmt.Println()
 
 	// Check latency
+	fmt.Println("############################")
+	fmt.Println("## Latency checking       ##")
+	fmt.Println("############################")
 	sizeOfEndpoints := len(endpoints)
 	latencyList := make([]time.Duration, sizeOfEndpoints)
 
@@ -204,16 +246,30 @@ func main() {
 
 		client := resty.New()
 
-		resp, err := client.R().
-			Get(fmt.Sprintf("http://%s/health", endpoint))
+		trial := 50
+		timeList := make([]int64, trial)
 
-		// Output print
-		fmt.Printf("\nError: %v\n", err)
-		fmt.Printf("Time: %v\n", resp.Time())
-		fmt.Printf("Body: %v\n", resp)
+		for i := 0; i < trial; i++ {
+			resp, _ := client.R().
+				Get(fmt.Sprintf("http://%s/health", endpoint))
 
-		latencyList[index] = resp.Time()
-		fmt.Println(latencyList[index])
+			// Output print
+			// fmt.Printf("Error: %v\n", err)
+			// fmt.Printf("Response time (%d): %v\n", i, resp.Time())
+			// fmt.Printf("Body: %v\n", resp)
+			timeList[i] = int64(resp.Time() / time.Millisecond)
+		}
+
+		var total int64 = 0
+		for _, value := range timeList {
+			total += value
+		}
+
+		avgLatency := time.Duration(total/int64(trial)) * time.Millisecond
+
+		latencyList[index] = avgLatency
+		fmt.Printf("Average response time: %v\n", latencyList[index])
+		fmt.Println()
 	}
 
 	// Sort by latency
@@ -229,21 +285,38 @@ func main() {
 	fmt.Printf("Endpoints: %v\n", endpoints)
 	fmt.Printf("Latency: %v\n", latencyList)
 
-	// // etcd Section
-	// etcdClient, err := clientv3.New(clientv3.Config{
-	// 	Endpoints:   endpoints,
-	// 	DialTimeout: 5 * time.Second,
-	// })
+	// Post-test
+	fmt.Println("############################")
+	fmt.Println("## Post-test              ##")
+	fmt.Println("############################")
+	etcdClient2, err := clientv3.New(clientv3.Config{
+		Endpoints:   endpoints,
+		DialTimeout: 5 * time.Second,
+	})
 
-	// if err != nil {
-	// 	CBLogger.Fatal(err)
-	// }
+	if err != nil {
+		CBLogger.Fatal(err)
+	}
 
-	// defer func() {
-	// 	errClose := etcdClient.Close()
-	// 	if errClose != nil {
-	// 		CBLogger.Fatal("Can't close the etcd client", errClose)
-	// 	}
-	// }()
+	defer func() {
+		errClose := etcdClient2.Close()
+		if errClose != nil {
+			CBLogger.Fatal("Can't close the etcd client", errClose)
+		}
+	}()
+
+	for i := 1; i <= 3; i++ {
+		t1 := time.Now()
+		resp, _ := etcdClient2.Get(ctx, "sample_key_2")
+		fmt.Println("MemberId: ", resp.Header.MemberId)
+		fmt.Println("etcd Get took", time.Since(t1))
+
+		t2 := time.Now()
+		etcdClient2.Put(ctx, "sample_key_2", "sample_value_2")
+		fmt.Println("etcd Put took", time.Since(t2))
+		fmt.Println()
+
+		time.Sleep(500 * time.Millisecond)
+	}
 
 }

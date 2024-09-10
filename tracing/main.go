@@ -15,8 +15,8 @@ import (
 type contextKey string
 
 const (
-	traceIDKey contextKey = "trace_id"
-	spanIDKey  contextKey = "span_id"
+	traceIDKey contextKey = "traceId"
+	spanIDKey  contextKey = "spanId"
 )
 
 // Define TracingHook struct
@@ -29,10 +29,10 @@ func (h TracingHook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
 	spanID := ctx.Value(spanIDKey)
 
 	if traceID != nil {
-		e.Str("trace_id", traceID.(string))
+		e.Str(string(traceIDKey), traceID.(string))
 	}
 	if spanID != nil {
-		e.Str("span_id", spanID.(string))
+		e.Str(string(spanIDKey), spanID.(string))
 	}
 }
 
@@ -52,7 +52,7 @@ func TracingMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		ctx = context.WithValue(ctx, spanIDKey, spanID)
 
 		// Create a logger with trace_id and span_id and store it in the context
-		logger := log.With().Str("trace_id", traceID).Str("span_id", spanID).Logger()
+		logger := log.With().Str(string(traceIDKey), traceID).Str(string(spanIDKey), spanID).Logger()
 		ctx = logger.WithContext(ctx)
 
 		// Set the context in the request

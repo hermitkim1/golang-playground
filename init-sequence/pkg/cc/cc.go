@@ -3,7 +3,7 @@ package cc
 import (
 	"fmt"
 
-	"github.com/hermitkim1/golang-playground/init-sequence/pkg/bb"
+	"github.com/yunkon-kim/golang-playground/init-sequence/pkg/bb"
 )
 
 func init() {

@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
-	"github.com/hermitkim1/golang-playground/init-sequence/pkg/aa"
-	"github.com/hermitkim1/golang-playground/init-sequence/pkg/bb"
-	"github.com/hermitkim1/golang-playground/init-sequence/pkg/cc"
+	"github.com/yunkon-kim/golang-playground/init-sequence/pkg/aa"
+	"github.com/yunkon-kim/golang-playground/init-sequence/pkg/bb"
+	"github.com/yunkon-kim/golang-playground/init-sequence/pkg/cc"
 )
 
 func init() {
